@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Quiz Results{% endblock %}
+{% block content %}
+    <h1>Your Results</h1>
+    <div class="result-box">
+        <p class="score">Score: <span>{{ score }} / {{ total }}</span></p>
+        <p class="percentage">Percentage: {{ (score / total * 100)|round(1) }}%</p>
+    </div>
+    <div class="result-links">
+        <a href="{{ url_for('quiz') }}" class="btn-secondary">Try Again</a>
+        <a href="{{ url_for('login') }}" class="btn-secondary">Back to Home</a>
+    </div>
+{% endblock %}
