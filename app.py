@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash
+from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
 import mysql.connector
 from mysql.connector import Error
@@ -21,9 +21,10 @@ db_config = {
 
 def get_db_connection():
     try:
-        return mysql.connector.connect(**db_config)
+        conn = mysql.connector.connect(**db_config)
+        return conn
     except Error as e:
-        flash(f"Database connection failed: {str(e)}", "alert-danger")
+        print(f"Database connection failed: {str(e)}")
         return None
 
 def login_required(f):
@@ -35,33 +36,31 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
+def validate_input(data):
+    return data.strip() if data and isinstance(data, str) else None
+
 @app.route("/", methods=["GET", "POST"])
 def login():
     if "user_id" in session:
         return redirect(url_for("quiz"))
-        
+
     if request.method == "POST":
-        username = request.form.get("username", "").strip()
-        password = request.form.get("password", "")
-        
-        print(f"Login attempt - Username: {username}")  # Debug
-        
+        username = validate_input(request.form.get("username"))
+        password = validate_input(request.form.get("password"))
+
         if not username or not password:
             flash("Please fill in all fields.", "alert-danger")
             return render_template("login.html")
-            
+        
         conn = get_db_connection()
         if not conn:
-            print("Database connection failed")  # Debug
+            flash("Database connection error.", "alert-danger")
             return render_template("login.html")
-            
+
         try:
             cursor = conn.cursor(dictionary=True)
             cursor.execute("SELECT user_id, password FROM users WHERE username = %s", (username,))
             user = cursor.fetchone()
-            
-            print(f"User found: {user is not None}")  # Debug
-            print(f"Stored hash: {user['password'] if user else 'None'}")  # Debug
             
             if user and check_password_hash(user["password"], password):
                 session.permanent = True
@@ -71,142 +70,53 @@ def login():
             else:
                 flash("Invalid username or password", "alert-danger")
         except Error as e:
-            print(f"Database error: {str(e)}")  # Debug
             flash(f"Error: {str(e)}", "alert-danger")
         finally:
             cursor.close()
             conn.close()
-            
+
     return render_template("login.html")
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
     if request.method == "POST":
-        username = request.form.get("username", "").strip()
-        password = request.form.get("password", "")
-        
+        username = validate_input(request.form.get("username"))
+        password = validate_input(request.form.get("password"))
+
         if not username or not password:
             flash("Please fill in all fields.", "alert-danger")
             return render_template("register.html")
-            
-        if len(password) < 8:
-            flash("Password must be at least 8 characters long.", "alert-danger")
-            return render_template("register.html")
-            
+        
+        hashed_password = generate_password_hash(password)
         conn = get_db_connection()
         if not conn:
+            flash("Database connection error.", "alert-danger")
             return render_template("register.html")
-            
+
         try:
             cursor = conn.cursor()
-            hashed_password = generate_password_hash(password)
-            cursor.execute("INSERT INTO users (username, password) VALUES (%s, %s)", 
-                         (username, hashed_password))
+            cursor.execute("INSERT INTO users (username, password) VALUES (%s, %s)", (username, hashed_password))
             conn.commit()
-            flash("Registration successful! Please login.", "alert-success")
+            flash("Registration successful! Please log in.", "alert-success")
             return redirect(url_for("login"))
-        except mysql.connector.IntegrityError:
-            flash("Username already exists", "alert-danger")
         except Error as e:
             flash(f"Error: {str(e)}", "alert-danger")
         finally:
             cursor.close()
             conn.close()
-            
+
     return render_template("register.html")
 
 @app.route("/reset_password", methods=["GET", "POST"])
 def reset_password():
     if request.method == "POST":
-        email = request.form.get("email", "").strip()
+        email = validate_input(request.form.get("email"))
         if not email:
             flash("Please enter an email address.", "alert-danger")
             return render_template("reset_password.html")
         flash("If an account exists, a reset link has been sent.", "alert-success")
         return redirect(url_for("login"))
     return render_template("reset_password.html")
-
-@app.route("/quiz")
-@login_required
-def quiz():
-    conn = get_db_connection()
-    if not conn:
-        return redirect(url_for("login"))
-        
-    try:
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM questions ORDER BY RAND() LIMIT 5")
-        questions = cursor.fetchall()
-        
-        if not questions:
-            flash("No questions available.", "alert-danger")
-            return redirect(url_for("login"))
-            
-        session["questions"] = [dict(q) for q in questions]
-        session["score"] = 0
-        session["question_index"] = 0
-        return redirect(url_for("question"))
-    finally:
-        cursor.close()
-        conn.close()
-
-@app.route("/question", methods=["GET", "POST"])
-@login_required
-def question():
-    questions = session.get("questions")
-    if not questions:
-        return redirect(url_for("login"))
-        
-    question_index = session.get("question_index", 0)
-    if question_index >= len(questions):
-        return redirect(url_for("results"))
-        
-    question = questions[question_index]
-    
-    conn = get_db_connection()
-    if not conn:
-        return redirect(url_for("login"))
-        
-    try:
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM answers WHERE question_id = %s", (question["question_id"],))
-        answers = cursor.fetchall()
-        
-        if request.method == "POST":
-            try:
-                user_answer = int(request.form.get("answer", 0))
-                correct_answer_id = next((a["answer_id"] for a in answers if a["is_correct"]), None)
-                
-                is_correct = user_answer == correct_answer_id
-                session["score"] = session.get("score", 0) + (1 if is_correct else 0)
-                
-                cursor.execute("INSERT INTO scores (user_id, question_id, is_correct) VALUES (%s, %s, %s)",
-                             (session["user_id"], question["question_id"], is_correct))
-                conn.commit()
-                
-                session["question_index"] = question_index + 1
-                flash("Correct!" if is_correct else "Incorrect.", 
-                      "alert-success" if is_correct else "alert-danger")
-                return redirect(url_for("question"))
-            except ValueError:
-                flash("Please select an answer.", "alert-danger")
-                
-        return render_template("question.html", 
-                            question=question, 
-                            answers=answers, 
-                            question_index=question_index)
-    finally:
-        cursor.close()
-        conn.close()
-
-@app.route("/results")
-@login_required
-def results():
-    score = session.get("score", 0)
-    total = len(session.get("questions", []))
-    session.pop("questions", None)
-    session.pop("question_index", None)
-    return render_template("results.html", score=score, total=total)
 
 @app.route("/logout")
 def logout():
