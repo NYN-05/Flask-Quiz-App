@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Quiz Application{% endblock %}
+{% block content %}
+    <div class="landing-container">
+        <h1>Welcome to the Quiz Application</h1>
+        <p>Test your knowledge with our interactive quizzes! Whether you're a beginner or an expert, there's something for everyone.</p>
+        <p>Get started by clicking the button below.</p>
+        <a href="{{ url_for('login') }}" class="btn-secondary">Start Quiz</a>
+        <p class="text-center">New here? <a href="{{ url_for('register') }}">Create an account</a> or <a href="{{ url_for('reset_password') }}">reset your password</a>.</p>
+    </div>
+{% endblock %}
