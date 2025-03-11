@@ -1,0 +1,12 @@
+project/
+├── static/
+│   └── styles.css
+├── templates/
+│   ├── base.html
+│   ├── login.html
+│   ├── register.html
+│   ├── reset_password.html
+│   ├── question.html
+│   ├── results.html
+│   └── 404.html
+└── app.py
